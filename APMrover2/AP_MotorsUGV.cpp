@@ -742,16 +742,19 @@ void AP_MotorsUGV::output_throttle(SRV_Channel::Aux_servo_function_t function, f
         }
         const int8_t reverse_multiplier = out_chan->get_reversed() ? -1 : 1;
         bool relay_high = is_negative(reverse_multiplier * throttle);
+        bool relay_high_reverse = !relay_high;
 
         switch (function) {
             case SRV_Channel::k_throttle:
             case SRV_Channel::k_throttleLeft:
             case SRV_Channel::k_motor1:
                 _relayEvents.do_set_relay(0, relay_high);
+                _relayEvents.do_set_relay(2, relay_high_reverse);
                 break;
             case SRV_Channel::k_throttleRight:
             case SRV_Channel::k_motor2:
                 _relayEvents.do_set_relay(1, relay_high);
+                _relayEvents.do_set_relay(3, relay_high_reverse);
                 break;
             case SRV_Channel::k_motor3:
                 _relayEvents.do_set_relay(2, relay_high);

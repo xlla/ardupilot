@@ -128,6 +128,11 @@ define HAL_EXT_COMPASS_HMC5843_I2C_BUS 1
 
 
 # PWM out pins
+# now we start defining some PWM pins. We also map these pins to GPIO
+# values, so users can set BRD_PWM_COUNT to choose how many of the PWM
+# outputs on the primary MCU are setup as PWM and how many as
+# GPIOs. To match HAL_PX4 we number the GPIOs for the PWM outputs
+# starting at 50
 PA0 TIM2_CH1 TIM2 PWM(1) GPIO(50)
 PA1 TIM2_CH2 TIM2 PWM(2) GPIO(51)
 PA2 TIM2_CH3 TIM2 PWM(3) GPIO(52)

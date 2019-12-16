@@ -51,7 +51,7 @@ def parse_af_table(fname, table):
     i = 0
     aflist = []
     for row in csvt:
-        if len(row) > 2 and row[1] == 'AF0':
+        if len(row) > 2 and row[1] == 'AF00':
             # it is a AF list
             aflist = []
             for s in row[1:]:

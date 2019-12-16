@@ -58,8 +58,8 @@ def check_full_table(table):
             channel_mask[engine-1] |= 1<<channel
     for i in range(2):
         for c in range(8):
-            if not ((1<<c) & channel_mask[i]):
-                error("Missing channel %u for dma table %u" % (c, i))
+            # if not ((1<<c) & channel_mask[i]):
+                # error("Missing channel %u for dma table %u" % (c, i))
             if not ((1<<c) & stream_mask[i]):
                 error("Missing stream %u for dma table %u" % (c, i))
     
