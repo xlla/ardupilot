@@ -4,6 +4,8 @@
 #include "AP_NavEKF3_core.h"
 #include <AP_AHRS/AP_AHRS.h>
 #include <AP_Vehicle/AP_Vehicle.h>
+#include <AP_GPS/AP_GPS.h>
+#include <AP_RangeFinder/AP_RangeFinder.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -56,7 +58,7 @@ void NavEKF3_core::getFlowDebug(float &varFlow, float &gndOffset, float &flowInn
     gndOffset = terrainState;
     flowInnovX = innovOptFlow[0];
     flowInnovY = innovOptFlow[1];
-    auxInnov = auxFlowObsInnov;
+    auxInnov = norm(auxFlowObsInnov.x,auxFlowObsInnov.y);
     HAGL = terrainState - stateStruct.position.z;
     rngInnov = innovRng;
     range = rangeDataDelayed.rng;
@@ -111,7 +113,12 @@ bool NavEKF3_core::getHeightControlLimit(float &height) const
     // only ask for limiting if we are doing optical flow navigation
     if (frontend->_fusionModeGPS == 3) {
         // If are doing optical flow nav, ensure the height above ground is within range finder limits after accounting for vehicle tilt and control errors
-        height = MAX(float(frontend->_rng.max_distance_cm_orient(ROTATION_PITCH_270)) * 0.007f - 1.0f, 1.0f);
+        const RangeFinder *_rng = AP::rangefinder();
+        if (_rng == nullptr) {
+            // we really, really shouldn't be here.
+            return false;
+        }
+        height = MAX(float(_rng->max_distance_cm_orient(ROTATION_PITCH_270)) * 0.007f - 1.0f, 1.0f);
         // If we are are not using the range finder as the height reference, then compensate for the difference between terrain and EKF origin
         if (frontend->_altSource != 1) {
             height -= terrainState;
@@ -223,7 +230,7 @@ float NavEKF3_core::getPosDownDerivative(void) const
 {
     // return the value calculated from a complementary filter applied to the EKF height and vertical acceleration
     // correct for the IMU offset (EKF calculations are at the IMU)
-    return posDownDerivative + velOffsetNED.z;
+    return vertCompFiltState.vel + velOffsetNED.z;
 }
 
 // This returns the specific forces in the NED frame
@@ -250,7 +257,7 @@ bool NavEKF3_core::getPosNE(Vector2f &posNE) const
             if ((AP::gps().status() >= AP_GPS::GPS_OK_FIX_2D)) {
                 // If the origin has been set and we have GPS, then return the GPS position relative to the origin
                 const struct Location &gpsloc = AP::gps().location();
-                Vector2f tempPosNE = location_diff(EKF_origin, gpsloc);
+                const Vector2f tempPosNE = EKF_origin.get_distance_NE(gpsloc);
                 posNE.x = tempPosNE.x;
                 posNE.y = tempPosNE.y;
                 return false;
@@ -544,7 +551,7 @@ void  NavEKF3_core::getFilterGpsStatus(nav_gps_status &faults) const
 }
 
 // send an EKF_STATUS message to GCS
-void NavEKF3_core::send_status_report(mavlink_channel_t chan)
+void NavEKF3_core::send_status_report(mavlink_channel_t chan) const
 {
     // prepare flags
     uint16_t flags = 0;
@@ -606,7 +613,7 @@ void NavEKF3_core::send_status_report(mavlink_channel_t chan)
 // report the reason for why the backend is refusing to initialise
 const char *NavEKF3_core::prearm_failure_reason(void) const
 {
-    if (imuSampleTime_ms - lastGpsVelFail_ms > 10000) {
+    if (gpsGoodToAlign) {
         // we are not failing
         return nullptr;
     }

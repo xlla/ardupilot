@@ -13,9 +13,14 @@ void Copter::read_barometer(void)
 void Copter::init_rangefinder(void)
 {
 #if RANGEFINDER_ENABLED == ENABLED
-   rangefinder.init();
+   rangefinder.set_log_rfnd_bit(MASK_LOG_CTUN);
+   rangefinder.init(ROTATION_PITCH_270);
    rangefinder_state.alt_cm_filt.set_cutoff_frequency(RANGEFINDER_WPNAV_FILT_HZ);
    rangefinder_state.enabled = rangefinder.has_orientation(ROTATION_PITCH_270);
+
+   // upward facing range finder
+   rangefinder_up_state.alt_cm_filt.set_cutoff_frequency(RANGEFINDER_WPNAV_FILT_HZ);
+   rangefinder_up_state.enabled = rangefinder.has_orientation(ROTATION_PITCH_90);
 #endif
 }
 
@@ -25,42 +30,81 @@ void Copter::read_rangefinder(void)
 #if RANGEFINDER_ENABLED == ENABLED
     rangefinder.update();
 
-    if (rangefinder.num_sensors() > 0 &&
-        should_log(MASK_LOG_CTUN)) {
-        logger.Write_RFND(rangefinder);
-    }
+#if RANGEFINDER_TILT_CORRECTION == ENABLED
+    const float tilt_correction = MAX(0.707f, ahrs.get_rotation_body_to_ned().c.z);
+#else
+    const float tilt_correction = 1.0f;
+#endif
 
-    rangefinder_state.alt_healthy = ((rangefinder.status_orient(ROTATION_PITCH_270) == RangeFinder::RangeFinder_Good) && (rangefinder.range_valid_count_orient(ROTATION_PITCH_270) >= RANGEFINDER_HEALTH_MAX));
+    // iterate through downward and upward facing lidar
+    struct {
+        RangeFinderState &state;
+        enum Rotation orientation;
+    } rngfnd[2] = { {rangefinder_state, ROTATION_PITCH_270}, {rangefinder_up_state, ROTATION_PITCH_90}};
 
-    int16_t temp_alt = rangefinder.distance_cm_orient(ROTATION_PITCH_270);
+    for (uint8_t i=0; i < ARRAY_SIZE(rngfnd); i++) {
+        // local variables to make accessing simpler
+        RangeFinderState &rf_state = rngfnd[i].state;
+        enum Rotation rf_orient = rngfnd[i].orientation;
 
- #if RANGEFINDER_TILT_CORRECTION == ENABLED
-    // correct alt for angle of the rangefinder
-    temp_alt = (float)temp_alt * MAX(0.707f, ahrs.get_rotation_body_to_ned().c.z);
- #endif
+        // update health
+        rf_state.alt_healthy = ((rangefinder.status_orient(rf_orient) == RangeFinder::Status::Good) &&
+                                (rangefinder.range_valid_count_orient(rf_orient) >= RANGEFINDER_HEALTH_MAX));
 
-    rangefinder_state.alt_cm = temp_alt;
+        // tilt corrected but unfiltered, not glitch protected alt
+        rf_state.alt_cm = tilt_correction * rangefinder.distance_cm_orient(rf_orient);
 
-    // filter rangefinder for use by AC_WPNav
-    uint32_t now = AP_HAL::millis();
-
-    if (rangefinder_state.alt_healthy) {
-        if (now - rangefinder_state.last_healthy_ms > RANGEFINDER_TIMEOUT_MS) {
-            // reset filter if we haven't used it within the last second
-            rangefinder_state.alt_cm_filt.reset(rangefinder_state.alt_cm);
+        // glitch handling.  rangefinder readings more than RANGEFINDER_GLITCH_ALT_CM from the last good reading
+        // are considered a glitch and glitch_count becomes non-zero
+        // glitches clear after RANGEFINDER_GLITCH_NUM_SAMPLES samples in a row.
+        // glitch_cleared_ms is set so surface tracking (or other consumers) can trigger a target reset
+        const int32_t glitch_cm = rf_state.alt_cm - rf_state.alt_cm_glitch_protected;
+        if (glitch_cm >= RANGEFINDER_GLITCH_ALT_CM) {
+            rf_state.glitch_count = MAX(rf_state.glitch_count+1, 1);
+        } else if (glitch_cm <= -RANGEFINDER_GLITCH_ALT_CM) {
+            rf_state.glitch_count = MIN(rf_state.glitch_count-1, -1);
         } else {
-            rangefinder_state.alt_cm_filt.apply(rangefinder_state.alt_cm, 0.05f);
+            rf_state.glitch_count = 0;
+            rf_state.alt_cm_glitch_protected = rf_state.alt_cm;
         }
-        rangefinder_state.last_healthy_ms = now;
-    }
+        if (abs(rf_state.glitch_count) >= RANGEFINDER_GLITCH_NUM_SAMPLES) {
+            // clear glitch and record time so consumers (i.e. surface tracking) can reset their target altitudes
+            rf_state.glitch_count = 0;
+            rf_state.alt_cm_glitch_protected = rf_state.alt_cm;
+            rf_state.glitch_cleared_ms = AP_HAL::millis();
+        }
 
-    // send rangefinder altitude and health to waypoint navigation library
-    wp_nav->set_rangefinder_alt(rangefinder_state.enabled, rangefinder_state.alt_healthy, rangefinder_state.alt_cm_filt.get());
+        // filter rangefinder altitude
+        uint32_t now = AP_HAL::millis();
+        const bool timed_out = now - rf_state.last_healthy_ms > RANGEFINDER_TIMEOUT_MS;
+        if (rf_state.alt_healthy) {
+            if (timed_out) {
+                // reset filter if we haven't used it within the last second
+                rf_state.alt_cm_filt.reset(rf_state.alt_cm);
+            } else {
+                rf_state.alt_cm_filt.apply(rf_state.alt_cm, 0.05f);
+            }
+            rf_state.last_healthy_ms = now;
+        }
+
+        // send downward facing lidar altitude and health to waypoint navigation library
+        if (rf_orient == ROTATION_PITCH_270) {
+            if (rangefinder_state.alt_healthy || timed_out) {
+                wp_nav->set_rangefinder_alt(rangefinder_state.enabled, rangefinder_state.alt_healthy, rangefinder_state.alt_cm_filt.get());
+            }
+        }
+    }
 
 #else
+    // downward facing rangefinder
     rangefinder_state.enabled = false;
     rangefinder_state.alt_healthy = false;
     rangefinder_state.alt_cm = 0;
+
+    // upward facing rangefinder
+    rangefinder_up_state.enabled = false;
+    rangefinder_up_state.alt_healthy = false;
+    rangefinder_up_state.alt_cm = 0;
 #endif
 }
 
@@ -68,6 +112,12 @@ void Copter::read_rangefinder(void)
 bool Copter::rangefinder_alt_ok()
 {
     return (rangefinder_state.enabled && rangefinder_state.alt_healthy);
+}
+
+// return true if rangefinder_alt can be used
+bool Copter::rangefinder_up_ok()
+{
+    return (rangefinder_up_state.enabled && rangefinder_up_state.alt_healthy);
 }
 
 /*
@@ -85,37 +135,6 @@ void Copter::rpm_update(void)
 #endif
 }
 
-// initialise compass
-void Copter::init_compass()
-{
-    if (!g.compass_enabled) {
-        return;
-    }
-
-    if (!compass.init() || !compass.read()) {
-        // make sure we don't pass a broken compass to DCM
-        hal.console->printf("COMPASS INIT ERROR\n");
-        Log_Write_Error(ERROR_SUBSYSTEM_COMPASS,ERROR_CODE_FAILED_TO_INITIALISE);
-        return;
-    }
-    ahrs.set_compass(&compass);
-}
-
-/*
-  initialise compass's location used for declination
- */
-void Copter::init_compass_location()
-{
-    // update initial location used for declination
-    if (!ap.compass_init_location) {
-        Location loc;
-        if (ahrs.get_position(loc)) {
-            compass.set_initial_location(loc.lat, loc.lng);
-            ap.compass_init_location = true;
-        }
-    }
-}
-
 // initialise optical flow sensor
 void Copter::init_optflow()
 {
@@ -127,11 +146,13 @@ void Copter::init_optflow()
 
 void Copter::compass_cal_update()
 {
-    static uint32_t compass_cal_stick_gesture_begin = 0;
+    compass.cal_update();
 
-    if (!hal.util->get_soft_armed()) {
-        compass.compass_cal_update();
+    if (hal.util->get_soft_armed()) {
+        return;
     }
+
+    static uint32_t compass_cal_stick_gesture_begin = 0;
 
     if (compass.is_calibrating()) {
         if (channel_yaw->get_control_in() < -4000 && channel_throttle->get_control_in() > 900) {
@@ -178,7 +199,6 @@ void Copter::init_proximity(void)
 {
 #if PROXIMITY_ENABLED == ENABLED
     g2.proximity.init();
-    g2.proximity.set_rangefinder(&rangefinder);
 #endif
 }
 

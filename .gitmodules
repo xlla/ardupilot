@@ -13,6 +13,6 @@
 [submodule "gtest"]
 	path = modules/gtest
 	url = git://github.com/ArduPilot/googletest
-[submodule "modules/ChibiOS"]
-	path = modules/ChibiOS
-	url = git://github.com/ArduPilot/ChibiOS.git
+[submodule "modules/libcanard"]
+	path = modules/libcanard
+	url = git://github.com/ArduPilot/libcanard.git

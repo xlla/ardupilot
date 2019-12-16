@@ -39,13 +39,6 @@ const AP_Param::Info Tracker::var_info[] = {
     // @User: Advanced
     GSCALAR(sysid_target,           "SYSID_TARGET",    0),
 
-    // @Param: MAG_ENABLE
-    // @DisplayName: Enable Compass
-    // @Description: Setting this to Enabled(1) will enable the compass. Setting this to Disabled(0) will disable the compass. Note that this is separate from COMPASS_USE. This will enable the low level senor, and will enable logging of magnetometer data. To use the compass for navigation you must also set COMPASS_USE to 1.
-    // @Values: 0:Disabled,1:Enabled
-    // @User: Standard
-    GSCALAR(compass_enabled,        "MAG_ENABLE",     1),
-
     // @Param: YAW_SLEW_TIME
     // @DisplayName: Time for yaw to slew through its full range
     // @Description: This controls how rapidly the tracker will change the servo output for yaw. It is set as the number of seconds to do a full rotation. You can use this parameter to slow the trackers movements, which may help with some types of trackers. A value of zero will allow for unlimited servo movement per update.
@@ -63,15 +56,6 @@ const AP_Param::Info Tracker::var_info[] = {
     // @Range: 0 20
     // @User: Standard
     GSCALAR(pitch_slew_time,        "PITCH_SLEW_TIME",  2),
-
-    // @Param: SCAN_SPEED
-    // @DisplayName: Speed at which to rotate in scan mode
-    // @Description: This controls how rapidly the tracker will move the servos in SCAN mode
-    // @Units: deg/s
-    // @Increment: 1
-    // @Range: 0 100
-    // @User: Standard
-    GSCALAR(scan_speed,             "SCAN_SPEED",      5),
 
     // @Param: MIN_REVERSE_TIME
     // @DisplayName: Minimum time to apply a yaw reversal
@@ -245,19 +229,19 @@ const AP_Param::Info Tracker::var_info[] = {
 
     // @Group: SR0_
     // @Path: GCS_Mavlink.cpp
-    GOBJECTN(gcs().chan(0), gcs0,        "SR0_",     GCS_MAVLINK),
+    GOBJECTN(_gcs.chan_parameters[0], gcs0,        "SR0_",     GCS_MAVLINK_Parameters),
 
     // @Group: SR1_
     // @Path: GCS_Mavlink.cpp
-    GOBJECTN(gcs().chan(1),  gcs1,       "SR1_",     GCS_MAVLINK),
+    GOBJECTN(_gcs.chan_parameters[1],  gcs1,       "SR1_",     GCS_MAVLINK_Parameters),
 
     // @Group: SR2_
     // @Path: GCS_Mavlink.cpp
-    GOBJECTN(gcs().chan(2),  gcs2,       "SR2_",     GCS_MAVLINK),
+    GOBJECTN(_gcs.chan_parameters[2],  gcs2,       "SR2_",     GCS_MAVLINK_Parameters),
 
     // @Group: SR3_
     // @Path: GCS_Mavlink.cpp
-    GOBJECTN(gcs().chan(3),  gcs3,       "SR3_",     GCS_MAVLINK),
+    GOBJECTN(_gcs.chan_parameters[3],  gcs3,       "SR3_",     GCS_MAVLINK_Parameters),
 
     // @Param: LOG_BITMASK
     // @DisplayName: Log bitmask
@@ -371,7 +355,8 @@ const AP_Param::Info Tracker::var_info[] = {
 	GGROUP(pidYaw2Srv,         "YAW2SRV_", AC_PID),
 
 #ifdef ENABLE_SCRIPTING
-    // Scripting is intentionally not showing up in the parameter docs until it is a more standard feature
+    // @Group: SCR_
+    // @Path: ../libraries/AP_Scripting/AP_Scripting.cpp
     GOBJECT(scripting, "SCR_", AP_Scripting),
 #endif
 
@@ -393,6 +378,40 @@ const AP_Param::Info Tracker::var_info[] = {
     // @Values: 0:None,1:Pitch,2:Yaw
     // @Bitmask: 0:Pitch,1:Yaw
     GSCALAR(gcs_pid_mask,           "GCS_PID_MASK",     0),
+
+    // @Param: SCAN_SPEED_YAW
+    // @DisplayName: Speed at which to rotate the yaw axis in scan mode
+    // @Description: This controls how rapidly the tracker will move the servos in SCAN mode
+    // @Units: deg/s
+    // @Increment: 1
+    // @Range: 0 100
+    // @User: Standard
+    GSCALAR(scan_speed_yaw,         "SCAN_SPEED_YAW",   2),
+
+    // @Param: SCAN_SPEED_PIT
+    // @DisplayName: Speed at which to rotate pitch axis in scan mode
+    // @Description: This controls how rapidly the tracker will move the servos in SCAN mode
+    // @Units: deg/s
+    // @Increment: 1
+    // @Range: 0 100
+    // @User: Standard
+    GSCALAR(scan_speed_pitch,       "SCAN_SPEED_PIT",   5),
+
+    // @Param: INITIAL_MODE
+    // @DisplayName: Mode tracker will switch into after initialization
+    // @Description: 0:MANUAL, 1:STOP, 2:SCAN, 10:AUTO
+    // @User: Standard
+    GSCALAR(initial_mode,            "INITIAL_MODE",     10),
+
+    // @Param: SAFE_DISARM_PWM
+    // @DisplayName: PWM that will be output when disarmed or in stop mode
+    // @Description: 0:zero pwm, 1:trim pwm
+    // @User: Standard
+    GSCALAR(disarm_pwm,              "SAFE_DISARM_PWM",        0),
+
+    // @Group: STAT_
+    // @Path: ../libraries/AP_Stats/AP_Stats.cpp
+    GOBJECT(stats, "STAT",  AP_Stats),
 
     AP_VAREND
 };

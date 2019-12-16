@@ -13,7 +13,7 @@ bool QAutoTune::init()
     }
 
     // use position hold while tuning if we were in QLOITER
-    bool position_hold = (plane.previous_mode == QLOITER);
+    bool position_hold = (plane.previous_mode == &plane.mode_qloiter);
 
     return init_internals(position_hold,
                           plane.quadplane.attitude_control,
@@ -45,21 +45,6 @@ void QAutoTune::init_z_limits()
     plane.quadplane.pos_control->set_max_accel_z(plane.quadplane.pilot_accel_z);
 }
 
-
-// Wrote an event packet
-void QAutoTune::Log_Write_Event(enum at_event id)
-{
-    // offset of 30 aligned with ArduCopter autotune events
-    uint8_t ev_id = 30 + (uint8_t)id;
-    AP::logger().Write(
-        "EVT",
-        "TimeUS,Id",
-        "s-",
-        "F-",
-        "QB",
-        AP_HAL::micros64(),
-        ev_id);
-}
 
 // log VTOL PIDs for during twitch
 void QAutoTune::log_pids(void)

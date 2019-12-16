@@ -8,61 +8,19 @@ void Tracker::update_ahrs()
     ahrs.update();
 }
 
-// initialise compass
-void Tracker::init_compass()
-{
-    if (!g.compass_enabled) {
-        return;
-    }
-
-    if (!compass.init()|| !compass.read()) {
-        hal.console->printf("Compass initialisation failed!\n");
-        g.compass_enabled = false;
-    } else {
-        ahrs.set_compass(&compass);
-    }
-}
-
-/*
-  initialise compass's location used for declination
- */
-void Tracker::init_compass_location(void)
-{
-    // update initial location used for declination
-    if (!compass_init_location) {
-        Location loc;
-        if (ahrs.get_position(loc)) {
-            compass.set_initial_location(loc.lat, loc.lng);
-            compass_init_location = true;
-        }
-    }
-}
-
 /*
   read and update compass
  */
 void Tracker::update_compass(void)
 {
-    if (g.compass_enabled && compass.read()) {
+    if (AP::compass().enabled() && compass.read()) {
         ahrs.set_compass(&compass);
-        if (should_log(MASK_LOG_COMPASS)) {
-            logger.Write_Compass();
-        }
-    }
-}
-
-/*
- calibrate compass
-*/
-void Tracker::compass_cal_update() {
-    if (!hal.util->get_soft_armed()) {
-        compass.compass_cal_update();
     }
 }
 
 // Save compass offsets
 void Tracker::compass_save() {
-    if (g.compass_enabled &&
+    if (AP::compass().enabled() &&
         compass.get_learn_type() >= Compass::LEARN_INTERNAL &&
         !hal.util->get_soft_armed()) {
         compass.save_offsets();
@@ -111,11 +69,6 @@ void Tracker::update_GPS(void)
                 current_loc = gps.location();
                 if (!set_home(current_loc)) {
                     // silently ignored
-                }
-
-                if (g.compass_enabled) {
-                    // Set compass declination automatically
-                    compass.set_initial_location(gps.location().lat, gps.location().lng);
                 }
                 ground_start_count = 0;
             }

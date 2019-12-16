@@ -25,8 +25,9 @@
  */
 bool QuadPlane::is_tailsitter(void) const
 {
-    return available() && ((frame_class == AP_Motors::MOTOR_FRAME_TAILSITTER) || 
-                           (tailsitter.motor_mask != 0));
+    return available() 
+        && ((frame_class == AP_Motors::MOTOR_FRAME_TAILSITTER) || (tailsitter.motor_mask != 0))
+        && (tilt.tilt_type != TILT_TYPE_BICOPTER);
 }
 
 /*
@@ -77,30 +78,30 @@ void QuadPlane::tailsitter_output(void)
         float throttle = SRV_Channels::get_output_scaled(SRV_Channel::k_throttle);
         if (hal.util->get_soft_armed()) {
             if (in_tailsitter_vtol_transition() && !throttle_wait && is_flying()) {
-            /*
-              during transitions to vtol mode set the throttle to
-              hover thrust, center the rudder and set the altitude controller
-              integrator to the same throttle level
-             */
-            throttle = motors->get_throttle_hover() * 100;
-            SRV_Channels::set_output_scaled(SRV_Channel::k_rudder, 0);
-            pos_control->get_accel_z_pid().set_integrator(throttle*10);
-            
-            if (mask == 0) {
-                // override AP_MotorsTailsitter throttles during back transition
-                SRV_Channels::set_output_scaled(SRV_Channel::k_throttle, throttle);
-                SRV_Channels::set_output_scaled(SRV_Channel::k_throttleLeft, throttle);
-                SRV_Channels::set_output_scaled(SRV_Channel::k_throttleRight, throttle);            
+                /*
+                  during transitions to vtol mode set the throttle to
+                  hover thrust, center the rudder and set the altitude controller
+                  integrator to the same throttle level
+                 */
+                throttle = motors->get_throttle_hover() * 100;
+                SRV_Channels::set_output_scaled(SRV_Channel::k_rudder, 0);
+                pos_control->get_accel_z_pid().set_integrator(throttle*10);
+
+                if (mask == 0) {
+                    // override AP_MotorsTailsitter throttles during back transition
+                    SRV_Channels::set_output_scaled(SRV_Channel::k_throttle, throttle);
+                    SRV_Channels::set_output_scaled(SRV_Channel::k_throttleLeft, throttle);
+                    SRV_Channels::set_output_scaled(SRV_Channel::k_throttleRight, throttle);
+                }
             }
-        }
-        if (mask != 0) {
-            // set AP_MotorsMatrix throttles enabled for forward flight
-            motors->output_motor_mask(throttle * 0.01f, mask, plane.rudder_dt);
+            if (mask != 0) {
+                // set AP_MotorsMatrix throttles enabled for forward flight
+                motors->output_motor_mask(throttle * 0.01f, mask, plane.rudder_dt);
             }
         }
         return;
     }
-    
+
     // handle VTOL modes
     // the MultiCopter rate controller has already been run in an earlier call 
     // to motors_output() from quadplane.update()
@@ -131,12 +132,16 @@ void QuadPlane::tailsitter_output(void)
         int32_t pitch_error_cd = (plane.nav_pitch_cd - ahrs_view->pitch_sensor) * 0.5;
         float extra_pitch = constrain_float(pitch_error_cd, -SERVO_MAX, SERVO_MAX) / SERVO_MAX;
         float extra_sign = extra_pitch > 0?1:-1;
-        float extra_elevator = extra_sign * powf(fabsf(extra_pitch), tailsitter.vectored_hover_power) * SERVO_MAX;
+        float extra_elevator = 0;
+        if (!is_zero(extra_pitch)) {
+            extra_elevator = extra_sign * powf(fabsf(extra_pitch), tailsitter.vectored_hover_power) * SERVO_MAX;
+        }
         tilt_left  = extra_elevator + tilt_left * tailsitter.vectored_hover_gain;
         tilt_right = extra_elevator + tilt_right * tailsitter.vectored_hover_gain;
         if (fabsf(tilt_left) >= SERVO_MAX || fabsf(tilt_right) >= SERVO_MAX) {
             // prevent integrator windup
-            motors->limit.roll_pitch = 1;
+            motors->limit.roll = 1;
+            motors->limit.pitch = 1;
             motors->limit.yaw = 1;
         }
         SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorLeft, tilt_left);
@@ -210,7 +215,8 @@ bool QuadPlane::tailsitter_transition_vtol_complete(void) const
 void QuadPlane::tailsitter_check_input(void)
 {
     if (tailsitter_active() &&
-        (tailsitter.input_type == TAILSITTER_INPUT_BF_ROLL ||
+        (tailsitter.input_type == TAILSITTER_INPUT_BF_ROLL_P ||
+         tailsitter.input_type == TAILSITTER_INPUT_BF_ROLL_M ||
          tailsitter.input_type == TAILSITTER_INPUT_PLANE)) {
         // the user has asked for body frame controls when tailsitter
         // is active. We switch around the control_in value for the
@@ -268,12 +274,18 @@ void QuadPlane::tailsitter_speed_scaling(void)
         } else {
             // if no airspeed sensor reduce control surface throws at large tilt
             // angles (assuming high airspeed)
-
             // ramp down from 1 to max_atten at tilt angles over trans_angle
             // (angles here are represented by their cosines)
-            constexpr float c_trans_angle = cosf(.125f * M_PI);
-            constexpr float alpha = (1 - max_atten) / (c_trans_angle - cosf(radians(90)));
+
+            // Note that the cosf call will be necessary if trans_angle becomes a parameter
+            // but the C language spec does not guarantee that trig functions can be used
+            // in constant expressions, even though gcc currently allows it.
+            constexpr float c_trans_angle = 0.9238795; // cosf(.125f * M_PI)
+
+            // alpha = (1 - max_atten) / (c_trans_angle - cosf(radians(90)));
+            constexpr float alpha = (1 - max_atten) / c_trans_angle;
             constexpr float beta = 1 - alpha * c_trans_angle;
+
             const float c_tilt = ahrs_view->get_rotation_body_to_ned().c.z;
             if (c_tilt < c_trans_angle) {
                 spd_scaler = constrain_float(beta + alpha * c_tilt, max_atten, 1.0f);
@@ -310,9 +322,10 @@ void QuadPlane::tailsitter_speed_scaling(void)
     }
     last_scale = scale;
 
-    const SRV_Channel::Aux_servo_function_t functions[4] = {
+    const SRV_Channel::Aux_servo_function_t functions[5] = {
         SRV_Channel::Aux_servo_function_t::k_aileron,
         SRV_Channel::Aux_servo_function_t::k_elevator,
+        SRV_Channel::Aux_servo_function_t::k_rudder,
         SRV_Channel::Aux_servo_function_t::k_tiltMotorLeft,
         SRV_Channel::Aux_servo_function_t::k_tiltMotorRight};
     for (uint8_t i=0; i<ARRAY_SIZE(functions); i++) {

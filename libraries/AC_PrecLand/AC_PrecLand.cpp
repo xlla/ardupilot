@@ -102,7 +102,7 @@ const AP_Param::GroupInfo AC_PrecLand::var_info[] = {
     // @Units: s
     // @User: Advanced
     // @RebootRequired: True
-    AP_GROUPINFO("LAG", 9, AC_PrecLand, _lag, 0.02), // 20ms is the old default buffer size (8 frames @ 400hz/2.5ms)
+    AP_GROUPINFO("LAG", 9, AC_PrecLand, _lag, 0.02f), // 20ms is the old default buffer size (8 frames @ 400hz/2.5ms)
 
     AP_GROUPEND
 };
@@ -251,7 +251,7 @@ bool AC_PrecLand::get_target_velocity_relative_cms(Vector2f& ret)
 }
 
 // handle_msg - Process a LANDING_TARGET mavlink message
-void AC_PrecLand::handle_msg(mavlink_message_t* msg)
+void AC_PrecLand::handle_msg(const mavlink_message_t &msg)
 {
     // run backend update
     if (_backend != nullptr) {

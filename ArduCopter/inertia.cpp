@@ -3,28 +3,26 @@
 // read_inertia - read inertia in from accelerometers
 void Copter::read_inertia()
 {
-    // inertial altitude estimates
-    inertial_nav.update(G_Dt);
+    // inertial altitude estimates. Use barometer climb rate during high vibrations
+    inertial_nav.update(vibration_check.high_vibes);
 
-    // pull position from interial nav library
-    current_loc.lng = inertial_nav.get_longitude();
-    current_loc.lat = inertial_nav.get_latitude();
+    // pull position from ahrs
+    Location loc;
+    ahrs.get_position(loc);
+    current_loc.lat = loc.lat;
+    current_loc.lng = loc.lng;
 
     // exit immediately if we do not have an altitude estimate
     if (!inertial_nav.get_filter_status().flags.vert_pos) {
         return;
     }
 
-    Location::ALT_FRAME frame;
     if (ahrs.home_is_set()) {
-        frame = Location::ALT_FRAME_ABOVE_HOME;
+        current_loc.set_alt_cm(inertial_nav.get_altitude(),
+                               Location::AltFrame::ABOVE_HOME);
     } else {
         // without home use alt above the EKF origin
-        frame = Location::ALT_FRAME_ABOVE_ORIGIN;
+        current_loc.set_alt_cm(inertial_nav.get_altitude(),
+                               Location::AltFrame::ABOVE_ORIGIN);
     }
-    current_loc.set_alt_cm(inertial_nav.get_altitude(), frame);
-    current_loc.change_alt_frame(Location::ALT_FRAME_ABOVE_HOME);
-
-    // set flags and get velocity
-    climb_rate = inertial_nav.get_velocity_z();
 }
