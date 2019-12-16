@@ -51,7 +51,9 @@ MAV_MODE GCS_MAVLINK_Tracker::base_mode() const
     }
 
     // we are armed if safety switch is not disarmed
-    if (hal.util->safety_switch_state() != AP_HAL::Util::SAFETY_DISARMED) {
+    if (hal.util->safety_switch_state() != AP_HAL::Util::SAFETY_DISARMED &&
+        tracker.control_mode != INITIALISING &&
+        hal.util->get_soft_armed()) {
         _base_mode |= MAV_MODE_FLAG_SAFETY_ARMED;
     }
 
@@ -87,6 +89,45 @@ void GCS_MAVLINK_Tracker::send_nav_controller_output() const
         0);
 }
 
+/*
+  send PID tuning message
+ */
+void GCS_MAVLINK_Tracker::send_pid_tuning()
+{
+    const Parameters &g = tracker.g;
+
+    // Pitch PID
+    if (g.gcs_pid_mask & 1) {
+        const AP_Logger::PID_Info *pid_info;
+        pid_info = &g.pidPitch2Srv.get_pid_info();
+        mavlink_msg_pid_tuning_send(chan, PID_TUNING_PITCH,
+                                    pid_info->desired,
+                                    pid_info->actual,
+                                    pid_info->FF,
+                                    pid_info->P,
+                                    pid_info->I,
+                                    pid_info->D);
+        if (!HAVE_PAYLOAD_SPACE(chan, PID_TUNING)) {
+            return;
+        }
+    }
+
+    // Yaw PID
+    if (g.gcs_pid_mask & 2) {
+        const AP_Logger::PID_Info *pid_info;
+        pid_info = &g.pidYaw2Srv.get_pid_info();
+        mavlink_msg_pid_tuning_send(chan, PID_TUNING_YAW,
+                                    pid_info->desired,
+                                    pid_info->actual,
+                                    pid_info->FF,
+                                    pid_info->P,
+                                    pid_info->I,
+                                    pid_info->D);
+        if (!HAVE_PAYLOAD_SPACE(chan, PID_TUNING)) {
+            return;
+        }
+    }
+}
 
 bool GCS_MAVLINK_Tracker::handle_guided_request(AP_Mission::Mission_Command&)
 {
@@ -217,6 +258,7 @@ static const ap_message STREAM_RC_CHANNELS_msgs[] = {
 };
 static const ap_message STREAM_EXTRA1_msgs[] = {
     MSG_ATTITUDE,
+    MSG_PID_TUNING,
 };
 static const ap_message STREAM_EXTRA3_msgs[] = {
     MSG_AHRS,
@@ -252,6 +294,7 @@ void GCS_MAVLINK_Tracker::packetReceived(const mavlink_status_t &status,
 {
     // return immediately if sysid doesn't match our target sysid
     if ((tracker.g.sysid_target != 0) && (tracker.g.sysid_target != msg.sysid)) {
+        GCS_MAVLINK::packetReceived(status, msg);
         return;
     }
 
@@ -340,16 +383,13 @@ MAV_RESULT GCS_MAVLINK_Tracker::handle_command_long_packet(const mavlink_command
     switch(packet.command) {
 
     case MAV_CMD_COMPONENT_ARM_DISARM:
-        if (packet.target_component == MAV_COMP_ID_SYSTEM_CONTROL) {
-            if (is_equal(packet.param1,1.0f)) {
-                tracker.arm_servos();
-                return MAV_RESULT_ACCEPTED;
-            } else if (is_zero(packet.param1))  {
-                tracker.disarm_servos();
-                return MAV_RESULT_ACCEPTED;
-            } else {
-                return MAV_RESULT_UNSUPPORTED;
-            }
+        if (is_equal(packet.param1,1.0f)) {
+            tracker.arm_servos();
+            return MAV_RESULT_ACCEPTED;
+        }
+        if (is_zero(packet.param1))  {
+            tracker.disarm_servos();
+            return MAV_RESULT_ACCEPTED;
         }
         return MAV_RESULT_UNSUPPORTED;
 
@@ -379,9 +419,6 @@ bool GCS_MAVLINK_Tracker::set_home(const Location& loc, bool lock) {
 void GCS_MAVLINK_Tracker::handleMessage(mavlink_message_t* msg)
 {
     switch (msg->msgid) {
-
-    case MAVLINK_MSG_ID_HEARTBEAT:
-        break;
 
     // When mavproxy 'wp sethome' 
     case MAVLINK_MSG_ID_MISSION_WRITE_PARTIAL_LIST:
@@ -586,6 +623,28 @@ bool GCS_MAVLINK_Tracker::set_mode(uint8_t mode)
     }
     return false;
 }
+
+// send position tracker is using
+void GCS_MAVLINK_Tracker::send_global_position_int()
+{
+    if (!tracker.stationary) {
+        GCS_MAVLINK::send_global_position_int();
+        return;
+    }
+
+    mavlink_msg_global_position_int_send(
+        chan,
+        AP_HAL::millis(),
+        tracker.current_loc.lat,  // in 1E7 degrees
+        tracker.current_loc.lng,  // in 1E7 degrees
+        tracker.current_loc.alt,  // millimeters above ground/sea level
+        0,                        // millimeters above home
+        0,                        // X speed cm/s (+ve North)
+        0,                        // Y speed cm/s (+ve East)
+        0,                        // Z speed cm/s (+ve Down)
+        tracker.ahrs.yaw_sensor); // compass heading in 1/100 degree
+}
+
 
 /* dummy methods to avoid having to link against AP_Camera */
 void AP_Camera::control_msg(mavlink_message_t const*) {}

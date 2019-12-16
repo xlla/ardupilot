@@ -158,6 +158,7 @@ class Board:
             '-Wno-redundant-decls',
             '-Wno-unknown-pragmas',
             '-Werror=format-security',
+            '-Werror=enum-compare',
             '-Werror=array-bounds',
             '-Werror=uninitialized',
             '-Werror=init-self',
@@ -176,6 +177,7 @@ class Board:
                 '-fcolor-diagnostics',
 
                 '-Werror=inconsistent-missing-override',
+                '-Werror=overloaded-virtual',
 
                 '-Wno-gnu-designator',
                 '-Wno-mismatched-tags',
@@ -292,6 +294,9 @@ Please use a replacement build as follows:
  px4-v4pro  Use DrotekP3Pro build
 ''' % ctx.env.BOARD)
 
+        boards = _board_classes.keys()
+        if not ctx.env.BOARD in boards:
+            ctx.fatal("Invalid board '%s': choices are %s" % (ctx.env.BOARD, ', '.join(boards)))
         _board = _board_classes[ctx.env.BOARD]()
     return _board
 

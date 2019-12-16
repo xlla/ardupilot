@@ -861,6 +861,25 @@ class AutoTestPlane(AutoTest):
                          lambda: self.fly_mission(
                              os.path.join(testdir, "ap1.txt")))
 
+    def airspeed_autocal(self):
+        self.progress("Ensure no AIRSPEED_AUTOCAL on ground")
+        self.set_parameter("ARSPD_AUTOCAL", 1)
+        m = self.mav.recv_match(type='AIRSPEED_AUTOCAL',
+                                blocking=True,
+                                timeout=5)
+        if m is not None:
+            raise NotAchievedException("Got autocal on ground")
+        mission_filepath = os.path.join(testdir, "flaps.txt")
+        self.load_mission(mission_filepath)
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+        self.change_mode("AUTO")
+        self.progress("Ensure AIRSPEED_AUTOCAL in air")
+        m = self.mav.recv_match(type='AIRSPEED_AUTOCAL',
+                                blocking=True,
+                                timeout=5)
+        self.mav.motors_disarmed_wait()
+
     def rc_defaults(self):
         ret = super(AutoTestPlane, self).rc_defaults()
         ret[3] = 1000
@@ -869,6 +888,10 @@ class AutoTestPlane(AutoTest):
 
     def default_mode(self):
         return "MANUAL"
+
+    def test_pid_tuning(self):
+        self.change_mode("FBWA") # we don't update PIDs in MANUAL
+        super(AutoTestPlane, self).test_pid_tuning()
 
     def tests(self):
         '''return list of all tests'''
@@ -887,8 +910,6 @@ class AutoTestPlane(AutoTest):
 
             ("TestFlaps", "Flaps", self.fly_flaps),
 
-            ("ArmFeatures", "Arm features", self.test_arm_feature),
-
             ("MainFlight",
              "Lots of things in one flight",
              self.test_main_flight),
@@ -898,6 +919,8 @@ class AutoTestPlane(AutoTest):
              self.test_gripper_mission),
 
             ("Parachute", "Test Parachute", self.test_parachute),
+
+            ("AIRSPEED_AUTOCAL", "Test AIRSPEED_AUTOCAL", self.airspeed_autocal),
 
             ("LogDownLoad",
              "Log download",

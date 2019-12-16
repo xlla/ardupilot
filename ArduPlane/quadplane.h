@@ -196,6 +196,8 @@ private:
     void control_stabilize(void);
 
     void check_attitude_relax(void);
+    void init_qacro(void);
+    void control_qacro(void);
     void init_hover(void);
     void control_hover(void);
 
@@ -410,6 +412,7 @@ private:
     enum tailsitter_input {
         TAILSITTER_INPUT_MULTICOPTER = 0,
         TAILSITTER_INPUT_PLANE       = 1,
+        TAILSITTER_INPUT_BF_ROLL     = 2,
     };
 
     enum tailsitter_mask {
@@ -430,6 +433,7 @@ private:
         AP_Float vectored_hover_power;
         AP_Float throttle_scale_max;
         AP_Float max_roll_angle;
+        AP_Int16 motor_mask;
     } tailsitter;
 
     // the attitude view of the VTOL attitude controller

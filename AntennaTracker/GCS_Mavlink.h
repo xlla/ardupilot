@@ -33,6 +33,7 @@ protected:
     uint64_t capabilities() const override;
 
     void send_nav_controller_output() const override;
+    void send_pid_tuning() override;
 
 private:
 
@@ -41,6 +42,7 @@ private:
     void handleMessage(mavlink_message_t * msg) override;
     bool handle_guided_request(AP_Mission::Mission_Command &cmd) override;
     void handle_change_alt_request(AP_Mission::Mission_Command &cmd) override;
+    void send_global_position_int() override;
 
     MAV_TYPE frame_type() const override;
     MAV_MODE base_mode() const override;

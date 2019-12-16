@@ -196,6 +196,7 @@ public:
     virtual void send_rangefinder() const;
     void send_proximity() const;
     virtual void send_nav_controller_output() const = 0;
+    virtual void send_pid_tuning() = 0;
     void send_ahrs2();
     void send_ahrs3();
     void send_system_time();
@@ -423,6 +424,7 @@ protected:
 
     // vehicle-overridable message send function
     virtual bool try_send_message(enum ap_message id);
+    virtual void send_global_position_int();
 
     // message sending functions:
     bool try_send_compass_message(enum ap_message id);
@@ -686,8 +688,6 @@ private:
     // we cache the current location and send it even if the AHRS has
     // no idea where we are:
     struct Location global_position_current_loc;
-
-    void send_global_position_int();
 
     void zero_rc_outputs();
 

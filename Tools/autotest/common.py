@@ -287,26 +287,37 @@ class AutoTest(ABC):
 
         self.initialise_after_reboot_sitl()
 
+    def set_streamrate(self, streamrate):
+        tstart = time.time()
+        while True:
+            if time.time() - tstart > 10:
+                raise AutoTestTimeoutException("stream rate change failed")
+
+            self.mavproxy.send("set streamrate %u\n" % (streamrate))
+            self.mavproxy.send("set streamrate\n")
+            self.mavproxy.expect('.*streamrate ([0-9]+)', timeout=1)
+            rate = self.mavproxy.match.group(1)
+            print("rate: %s" % str(rate))
+            if int(rate) == int(streamrate):
+                break
+
+        if streamrate <= 0:
+            return
+
+        m = self.mav.recv_match(type='SYSTEM_TIME',
+                                blocking=True,
+                                timeout=10)
+        print("Received (%s)" % str(m))
+        if m is None:
+            raise NotAchievedException("Did not get SYSTEM_TIME")
+
     def initialise_after_reboot_sitl(self):
 
         # after reboot stream-rates may be zero.  Prompt MAVProxy to
         # send a rate-change message by changing away from our normal
         # stream rates and back again:
-        tstart = self.get_sim_time()
-        while True:
-
-            self.mavproxy.send("set streamrate %u\n" % (self.sitl_streamrate()+1))
-
-            if self.get_sim_time() - tstart > 10:
-                raise AutoTestTimeoutException("SYSTEM_TIME not received")
-
-            m = self.mav.recv_match(type='SYSTEM_TIME',
-                                    blocking=True,
-                                    timeout=1)
-            if m is not None:
-                print("Received (%s)" % str(m))
-                break
-        self.mavproxy.send("set streamrate %u\n" % self.sitl_streamrate())
+        self.set_streamrate(self.sitl_streamrate()+1)
+        self.set_streamrate(self.sitl_streamrate())
         self.progress("Reboot complete")
 
     def close(self):
@@ -455,7 +466,7 @@ class AutoTest(ABC):
         self.mavproxy.expect("Finished downloading", timeout=timeout)
         self.wait_heartbeat()
         self.wait_heartbeat()
-        if upload_logs and not os.getenv("AUTOTEST_NO_UPLOAD"):
+        if upload_logs and os.getenv("AUTOTEST_UPLOAD"):
             # optionally upload logs to server so we can see travis failure logs
             import datetime
             import glob
@@ -1034,14 +1045,15 @@ class AutoTest(ABC):
     def run_cmd_get_ack(self, command, want_result, timeout):
         tstart = self.get_sim_time_cached()
         while True:
-            if self.get_sim_time_cached() - tstart > timeout:
-                raise AutoTestTimeoutException("Did not get good COMMAND_ACK")
+            delta_time = self.get_sim_time_cached() - tstart
+            if delta_time > timeout:
+                raise AutoTestTimeoutException("Did not get good COMMAND_ACK within %fs" % timeout)
             m = self.mav.recv_match(type='COMMAND_ACK',
                                     blocking=True,
                                     timeout=1)
             if m is None:
                 continue
-            self.progress("ACK received: %s" % str(m))
+            self.progress("ACK received: %s (%fs)" % (str(m), delta_time))
             if m.command == command:
                 if m.result != want_result:
                     raise ValueError("Expected %s got %s" % (want_result,
@@ -1146,30 +1158,40 @@ class AutoTest(ABC):
         self.progress("Available modes '%s'" % mode_map)
         raise ErrorException("Unknown mode '%s'" % mode)
 
-    def do_set_mode_via_command_long(self, mode, timeout=30):
-        """Set mode with a command long message."""
+    def run_cmd_do_set_mode(self,
+                            mode,
+                            timeout=30,
+                            want_result=mavutil.mavlink.MAV_RESULT_ACCEPTED):
         base_mode = mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
         custom_mode = self.get_mode_from_mode_mapping(mode)
+        self.run_cmd(mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+                     base_mode,
+                     custom_mode,
+                     0,
+                     0,
+                     0,
+                     0,
+                     0,
+                     want_result=want_result,
+                     timeout=timeout
+        )
+
+    def do_set_mode_via_command_long(self, mode, timeout=30):
+        """Set mode with a command long message."""
         tstart = self.get_sim_time()
+        want_custom_mode = self.get_mode_from_mode_mapping(mode)
         while True:
             remaining = timeout - (self.get_sim_time_cached() - tstart)
             if remaining <= 0:
                 raise AutoTestTimeoutException("Failed to change mode")
-            self.run_cmd(mavutil.mavlink.MAV_CMD_DO_SET_MODE,
-                         base_mode,
-                         custom_mode,
-                         0,
-                         0,
-                         0,
-                         0,
-                         0,
-                         )
+            self.run_cmd_do_set_mode(mode, timeout=10)
             m = self.mav.recv_match(type='HEARTBEAT',
                                     blocking=True,
                                     timeout=5)
             if m is None:
                 raise ErrorException("Heartbeat not received")
-            if m.custom_mode == custom_mode:
+            self.progress("Got mode=%u want=%u" % (m.custom_mode, want_custom_mode))
+            if m.custom_mode == want_custom_mode:
                 return
 
     def mavproxy_do_set_mode_via_command_long(self, mode, timeout=30):
@@ -1285,7 +1307,7 @@ class AutoTest(ABC):
         while self.get_sim_time_cached() < tstart + timeout:
             m = self.mav.recv_match(type='VFR_HUD', blocking=True)
             if self.get_sim_time_cached() - last_print > 1:
-                self.progress("Wait groundspeed %.1f, target:%.1f" %
+                self.progress("Wait groundspeed %.3f, target:%.3f" %
                               (m.groundspeed, gs_min))
                 last_print = self.get_sim_time_cached()
             if m.groundspeed >= gs_min and m.groundspeed <= gs_max:
@@ -1498,13 +1520,15 @@ class AutoTest(ABC):
         raise WaitWaypointTimeout("Timed out waiting for waypoint %u of %u" %
                                   (wpnum_end, wpnum_end))
 
+    def mode_is(self, mode):
+        self.wait_heartbeat()
+        return self.get_mode_from_mode_mapping(self.mav.flightmode) == self.get_mode_from_mode_mapping(mode)
+
     def wait_mode(self, mode, timeout=60):
         """Wait for mode to change."""
-        self.get_mode_from_mode_mapping(mode)
         self.progress("Waiting for mode %s" % mode)
         tstart = self.get_sim_time()
-        self.wait_heartbeat()
-        while self.mav.flightmode != mode:
+        while not self.mode_is(mode):
             custom_num = self.mav.messages['HEARTBEAT'].custom_mode
             self.progress("mav.flightmode=%s Want=%s custom=%u" % (
                     self.mav.flightmode, mode, custom_num))
@@ -1580,7 +1604,9 @@ class AutoTest(ABC):
         while self.get_sim_time() < tstart + timeout:
             if the_function is not None:
                 the_function()
-            m = self.mav.recv_match(type='STATUSTEXT', blocking=True)
+            m = self.mav.recv_match(type='STATUSTEXT', blocking=True, timeout=0.1)
+            if m is None:
+                continue
             if text.lower() in m.text.lower():
                 self.progress("Received expected text : %s" % m.text.lower())
                 return True
@@ -1758,26 +1784,47 @@ class AutoTest(ABC):
                          )
 
         home = self.poll_home_position()
-        self.progress("int-set home: %s" % str(home))
-        if (home.latitude != new_x or
-            home.longitude != new_y or
-            home.altitude != new_z):
+        self.progress("home: %s" % str(home))
+        got_home_latitude = home.latitude
+        got_home_longitude = home.longitude
+        got_home_altitude = home.altitude
+        if (got_home_latitude != new_x or
+            got_home_longitude != new_y or
+            abs(got_home_altitude - new_z) > 100): # float-conversion issues
             self.reboot_sitl()
             raise NotAchievedException(
-                "(%f, %f, %f) != (%f, %f, %f)" %
-                (home.latitude, home.longitude, home.altitude),
-                (new_x, new_y, new_z))
+                "Home mismatch got=(%f, %f, %f) set=(%f, %f, %f)" %
+                (got_home_latitude, got_home_longitude, got_home_altitude,
+                new_x, new_y, new_z))
 
-        # watch it for a little while to ensure it doesn't drift at all:
+        self.progress("monitoring home to ensure it doesn't drift at all")
         tstart = self.get_sim_time()
         while self.get_sim_time() - tstart < 10:
             home = self.poll_home_position()
-            self.progress("int-set home: %s" % str(home))
-            if (home.latitude != new_x or
-                home.longitude != new_y or
-                home.altitude != new_z):
+            self.progress("home: %s" % str(home))
+            if (home.latitude != got_home_latitude or
+                home.longitude != got_home_longitude or
+                home.altitude != got_home_altitude): # float-conversion issues
                 self.reboot_sitl()
                 raise NotAchievedException("home is drifting")
+        self.reboot_sitl()
+
+    def test_dataflash_over_mavlink(self):
+        self.context_push()
+        self.set_parameter("LOG_BACKEND_TYPE", 3)
+        self.reboot_sitl()
+        self.wait_ready_to_arm()
+        self.mavproxy.send('arm throttle\n')
+        self.mavproxy.expect('PreArm: Logging failed')
+        self.mavproxy.send("module load dataflash_logger\n")
+        self.mavproxy.send("dataflash_logger set verbose 1\n")
+        self.mavproxy.expect('logging started')
+        self.mavproxy.send("dataflash_logger set verbose 0\n")
+        self.delay_sim_time(1)
+        self.drain_mav() # hopefully draining COMMAND_ACK from that failed arm
+        self.arm_vehicle()
+        self.disarm_vehicle()
+        self.context_pop()
         self.reboot_sitl()
 
     def test_arm_feature(self):
@@ -1795,7 +1842,7 @@ class AutoTest(ABC):
         # Rover and Sub don't have auto disarm
         if self.is_copter() or self.is_plane():
             self.set_autodisarm_delay(0)
-        self.start_test("Test normal arm and disarm features")
+        self.start_subtest("Test normal arm and disarm features")
         self.wait_ready_to_arm()
         self.progress("default arm_vehicle() call")
         if not self.arm_vehicle():
@@ -1815,10 +1862,14 @@ class AutoTest(ABC):
             if not self.arm_motors_with_rc_input():
                 raise NotAchievedException("Failed to arm with RC input")
             self.progress("disarm with rc input")
-            if not self.disarm_motors_with_rc_input():
-                raise NotAchievedException("Failed to disarm with RC input")
+            if self.is_balancebot():
+                self.progress("balancebot can't disarm with RC input")
+                self.disarm_vehicle()
+            else:
+                if not self.disarm_motors_with_rc_input():
+                    raise NotAchievedException("Failed to disarm with RC input")
 
-            self.start_test("Test arm and disarm with switch")
+            self.start_subtest("Test arm and disarm with switch")
             arming_switch = 7
             self.set_parameter("RC%d_OPTION" % arming_switch, 41)
             self.set_rc(arming_switch, 1000)
@@ -1831,7 +1882,7 @@ class AutoTest(ABC):
             self.set_rc(arming_switch, 1000)
 
             if self.is_copter():
-                self.start_test("Test arming failure with throttle too high")
+                self.start_subtest("Test arming failure with throttle too high")
                 self.set_rc(3, 1800)
                 try:
                     if self.arm_vehicle():
@@ -1847,19 +1898,19 @@ class AutoTest(ABC):
                 self.set_rc(arming_switch, 1000)
 
             # Sub doesn't have 'stick commands'
-            self.start_test("Test arming failure with ARMING_RUDDER=0")
+            self.start_subtest("Test arming failure with ARMING_RUDDER=0")
             self.set_parameter("ARMING_RUDDER", 0)
             if self.arm_motors_with_rc_input():
                 raise NotAchievedException(
                     "Armed with rudder when ARMING_RUDDER=0")
-            self.start_test("Test disarming failure with ARMING_RUDDER=0")
+            self.start_subtest("Test disarming failure with ARMING_RUDDER=0")
             self.arm_vehicle()
             if self.disarm_motors_with_rc_input():
                 raise NotAchievedException(
                     "Disarmed with rudder when ARMING_RUDDER=0")
             self.disarm_vehicle()
             self.wait_heartbeat()
-            self.start_test("Test disarming failure with ARMING_RUDDER=1")
+            self.start_subtest("Test disarming failure with ARMING_RUDDER=1")
             self.set_parameter("ARMING_RUDDER", 1)
             self.arm_vehicle()
             if self.disarm_motors_with_rc_input():
@@ -1870,7 +1921,7 @@ class AutoTest(ABC):
             self.set_parameter("ARMING_RUDDER", 2)
 
             if self.is_copter():
-                self.start_test("Test arming failure with interlock enabled")
+                self.start_subtest("Test arming failure with interlock enabled")
                 self.set_rc(interlock_channel, 2000)
                 if self.arm_motors_with_rc_input():
                     raise NotAchievedException(
@@ -1883,7 +1934,7 @@ class AutoTest(ABC):
                 self.set_rc(arming_switch, 1000)
                 self.set_rc(interlock_channel, 1000)
                 if self.is_heli():
-                    self.start_test("Test motor interlock enable can't be set while disarmed")
+                    self.start_subtest("Test motor interlock enable can't be set while disarmed")
                     self.set_rc(interlock_channel, 2000)
                     channel_field = "servo%u_raw" % interlock_channel
                     interlock_value = self.get_parameter("SERVO%u_MIN" % interlock_channel)
@@ -2154,6 +2205,9 @@ class AutoTest(ABC):
     def is_rover(self):
         return False
 
+    def is_balancebot(self):
+        return False
+
     def is_heli(self):
         return False
 
@@ -2244,8 +2298,25 @@ switch value'''
     def disabled_tests(self):
         return {}
 
+    def test_pid_tuning(self):
+        self.progress("making sure we're not getting PID_TUNING messages")
+        m = self.mav.recv_match(type='PID_TUNING', blocking=True, timeout=5)
+        if m is not None:
+            raise PreconditionFailedException("Receiving PID_TUNING already")
+        self.set_parameter("GCS_PID_MASK", 1)
+        self.progress("making sure we are now getting PID_TUNING messages")
+        m = self.mav.recv_match(type='PID_TUNING', blocking=True, timeout=5)
+        if m is None:
+            raise PreconditionFailedException("Did not start to get PID_TUNING message")
+
     def tests(self):
         return [
+            ("PIDTuning",
+             "Test PID Tuning",
+             self.test_pid_tuning),
+
+            ("ArmFeatures", "Arm features", self.test_arm_feature),
+
             ("SetHome",
             "Test Set Home",
              self.fly_test_set_home),

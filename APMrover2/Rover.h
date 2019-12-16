@@ -81,6 +81,11 @@
 #include <AP_Follow/AP_Follow.h>
 #include <AP_OSD/AP_OSD.h>
 #include <AP_WindVane/AP_WindVane.h>
+
+#ifdef ENABLE_SCRIPTING
+#include <AP_Scripting/AP_Scripting.h>
+#endif
+
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
 #include <SITL/SITL.h>
 #endif
@@ -431,7 +436,6 @@ private:
 
     // GCS_Mavlink.cpp
     void send_servo_out(mavlink_channel_t chan);
-    void send_pid_tuning(mavlink_channel_t chan);
     void send_rpm(mavlink_channel_t chan);
     void send_wheel_encoder_distance(mavlink_channel_t chan);
 

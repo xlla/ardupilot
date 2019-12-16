@@ -186,6 +186,10 @@ class AutoTestQuadPlane(AutoTest):
                 return
         self.mav.motors_disarmed_wait()
 
+    def test_pid_tuning(self):
+        self.change_mode("FBWA") # we don't update PIDs in MANUAL
+        super(AutoTestQuadPlane, self).test_pid_tuning()
+
     def default_mode(self):
         return "MANUAL"
 
@@ -202,8 +206,6 @@ class AutoTestQuadPlane(AutoTest):
 
         ret = super(AutoTestQuadPlane, self).tests()
         ret.extend([
-            ("ArmFeatures", "Arm features", self.test_arm_feature),
-
             ("TestMotorMask", "Test output_motor_mask", self.test_motor_mask),
 
             ("QAutoTune", "Fly QAUTOTUNE mode", self.fly_qautotune),

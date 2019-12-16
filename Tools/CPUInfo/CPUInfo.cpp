@@ -9,6 +9,8 @@
 
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Common/AP_Common.h>
+#include <AP_Math/AP_Math.h>
+#include "EKF_Maths.h"
 
 void setup();
 void loop();
@@ -23,7 +25,12 @@ static uint32_t sysclk = STM32_SYSCLK;
 static uint32_t sysclk = 0;
 #endif
 
+static EKF_Maths ekf;
+
+
+
 void setup() {
+    ekf.init();
 }
 
 static void show_sizes(void)
@@ -122,7 +129,11 @@ static void show_timings(void)
     TIMEIT("asin()", v_out = asin(v_f * 0.2), 20);
     TIMEIT("atan2()", v_out = atan2(v_f * 0.2, v_f * 0.3), 20);
     TIMEIT("sqrt()",v_out = sqrt(v_f), 20);
-    
+    TIMEIT("sq()",v_out = sq(v_f), 20);
+    TIMEIT("powf(v,2)",v_out = powf(v_f, 2), 20);
+    TIMEIT("powf(v,3.1)",v_out = powf(v_f, 3.1), 20);
+    TIMEIT("EKF",v_out = ekf.test(), 5);
+
     TIMEIT("iadd8", v_out_8 += v_8, 100);
     TIMEIT("isub8", v_out_8 -= v_8, 100);
     TIMEIT("imul8", v_out_8 *= v_8, 100);
