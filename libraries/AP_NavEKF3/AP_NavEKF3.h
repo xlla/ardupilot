@@ -34,7 +34,7 @@ class NavEKF3 {
     friend class NavEKF3_core;
 
 public:
-    NavEKF3(const AP_AHRS *ahrs);
+    NavEKF3();
 
     /* Do not allow copies */
     NavEKF3(const NavEKF3 &other) = delete;
@@ -544,12 +544,12 @@ private:
     void updateLaneSwitchPosDownResetData(uint8_t new_primary, uint8_t old_primary);
 
     // logging functions shared by cores:
-    void Log_Write_EKF1(uint8_t core, LogMessages msg_id, uint64_t time_us) const;
-    void Log_Write_NKF2a(uint8_t core, LogMessages msg_id, uint64_t time_us) const;
-    void Log_Write_NKF3(uint8_t core, LogMessages msg_id, uint64_t time_us) const;
-    void Log_Write_NKF4(uint8_t core, LogMessages msg_id, uint64_t time_us) const;
-    void Log_Write_NKF5(uint64_t time_us) const;
-    void Log_Write_Quaternion(uint8_t core, LogMessages msg_id, uint64_t time_us) const;
+    void Log_Write_XKF1(uint8_t core, uint64_t time_us) const;
+    void Log_Write_XKF2(uint8_t core, uint64_t time_us) const;
+    void Log_Write_XKF3(uint8_t core, uint64_t time_us) const;
+    void Log_Write_XKF4(uint8_t core, uint64_t time_us) const;
+    void Log_Write_XKF5(uint64_t time_us) const;
+    void Log_Write_Quaternion(uint8_t core, uint64_t time_us) const;
     void Log_Write_Beacon(uint64_t time_us) const;
     void Log_Write_BodyOdom(uint64_t time_us) const;
     void Log_Write_State_Variances(uint64_t time_us) const;

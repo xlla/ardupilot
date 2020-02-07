@@ -75,12 +75,16 @@ void dump_stack_trace()
 	progname[n] = 0;
 
 	p = strrchr(progname, '/');
-	*p = 0;
+    if (p != nullptr) {
+	    *p = 0;
+    } else {
+        p = progname;
+    }
 
     char output_filepath[30];
     snprintf(output_filepath,
              ARRAY_SIZE(output_filepath),
-             "segv_%s.%d.out",
+             "dumpstack_%s.%d.out",
              p+1,
              (int)getpid());
 	snprintf(cmd,

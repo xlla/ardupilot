@@ -56,7 +56,6 @@
 #include <AC_WPNav/AC_Loiter.h>
 #include <AC_WPNav/AC_Circle.h>          // circle navigation library
 #include <AP_Declination/AP_Declination.h>     // ArduPilot Mega Declination Helper Library
-#include <AP_Scheduler/AP_Scheduler.h>       // main loop scheduler
 #include <AP_RCMapper/AP_RCMapper.h>        // RC input mapping library
 #include <AP_BattMonitor/AP_BattMonitor.h>     // Battery monitor library
 #include <AP_LandingGear/AP_LandingGear.h>     // Landing Gear library
@@ -66,7 +65,8 @@
 #include <AP_SmartRTL/AP_SmartRTL.h>
 #include <AP_TempCalibration/AP_TempCalibration.h>
 #include <AC_AutoTune/AC_AutoTune.h>
-#include <AP_Common/AP_FWVersion.h>
+#include <AP_Parachute/AP_Parachute.h>
+#include <AC_Sprayer/AC_Sprayer.h>
 
 // Configuration
 #include "defines.h"
@@ -107,14 +107,8 @@
  #include <AC_WPNav/AC_WPNav_OA.h>
  #include <AC_Avoidance/AP_OAPathPlanner.h>
 #endif
-#if SPRAYER_ENABLED == ENABLED
- # include <AC_Sprayer/AC_Sprayer.h>
-#endif
 #if GRIPPER_ENABLED == ENABLED
  # include <AP_Gripper/AP_Gripper.h>
-#endif
-#if PARACHUTE == ENABLED
- # include <AP_Parachute/AP_Parachute.h>
 #endif
 #if PRECISION_LANDING == ENABLED
  # include <AC_PrecLand/AC_PrecLand.h>
@@ -239,12 +233,7 @@ public:
 
     Copter(void);
 
-    // HAL::Callbacks implementation.
-    void setup() override;
-    void loop() override;
-
 private:
-    static const AP_FWVersion fwver;
 
     // key aircraft parameters passed to multiple libraries
     AP_Vehicle::MultiCopter aparm;
@@ -252,9 +241,6 @@ private:
     // Global parameters are all contained within the 'g' class.
     Parameters g;
     ParametersG2 g2;
-
-    // main loop scheduler
-    AP_Scheduler scheduler{FUNCTOR_BIND_MEMBER(&Copter::fast_loop, void)};
 
     // used to detect MAVLink acks from GCS to stop compassmot
     uint8_t command_ack_counter;
@@ -465,11 +451,6 @@ private:
     // Current location of the vehicle (altitude is relative to home)
     Location current_loc;
 
-    // IMU variables
-    // Integration time (in seconds) for the gyros (DCM algorithm)
-    // Updated with the fast loop
-    float G_Dt;
-
     // Inertial Navigation
     AP_InertialNav_NavEKF inertial_nav;
 
@@ -589,9 +570,6 @@ private:
 
     bool standby_active;
 
-    // set when we are upgrading parameters from 3.4
-    bool upgrading_frame_params;
-
     static const AP_Scheduler::Task scheduler_tasks[];
     static const AP_Param::Info var_info[];
     static const struct LogStructure log_structure[];
@@ -647,8 +625,11 @@ private:
     void set_failsafe_gcs(bool b);
     void update_using_interlock();
 
-    // ArduCopter.cpp
-    void fast_loop();
+    // Copter.cpp
+    void get_scheduler_tasks(const AP_Scheduler::Task *&tasks,
+                             uint8_t &task_count,
+                             uint32_t &log_bit) override;
+    void fast_loop() override;
     void rc_loop();
     void throttle_loop();
     void update_batt_compass(void);
@@ -749,6 +730,7 @@ private:
     bool should_use_landing_swash() const;
     void update_heli_control_dynamics(void);
     void heli_update_landing_swash();
+    float get_pilot_desired_rotor_speed() const;
     void heli_update_rotor_speed_targets();
     void heli_update_autorotation();
 #if MODE_AUTOROTATE_ENABLED == ENABLED
@@ -796,6 +778,7 @@ private:
     // mode.cpp
     bool set_mode(Mode::Number mode, ModeReason reason);
     bool set_mode(const uint8_t new_mode, const ModeReason reason) override;
+    uint8_t get_mode() const override { return (uint8_t)control_mode; }
     void update_flight_mode();
     void notify_flight_mode();
 
@@ -821,7 +804,7 @@ private:
     uint32_t home_distance();
 
     // Parameters.cpp
-    void load_parameters(void);
+    void load_parameters(void) override;
     void convert_pid_parameters(void);
     void convert_lgr_parameters(void);
     void convert_tradheli_parameters(void);
@@ -859,20 +842,12 @@ private:
     void winch_init();
     void winch_update();
 
-    // setup.cpp
-    void report_compass();
-    void print_blanks(int16_t num);
-    void print_divider(void);
-    void print_enabled(bool b);
-    void report_version();
-
     // switches.cpp
-    void read_control_switch();
     void save_trim();
     void auto_trim();
 
     // system.cpp
-    void init_ardupilot();
+    void init_ardupilot() override;
     void startup_INS_ground();
     void update_dynamic_notch();
     bool position_ok() const;
@@ -888,7 +863,6 @@ private:
     // terrain.cpp
     void terrain_update();
     void terrain_logging();
-    bool terrain_use();
 
     // tuning.cpp
     void tuning();
@@ -990,7 +964,6 @@ private:
     void exit_mode(Mode *&old_flightmode, Mode *&new_flightmode);
 
 public:
-    void mavlink_delay_cb();    // GCS_Mavlink.cpp
     void failsafe_check();      // failsafe.cpp
 };
 
