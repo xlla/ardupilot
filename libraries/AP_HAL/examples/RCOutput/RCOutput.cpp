@@ -25,7 +25,7 @@ void setup (void)
 #if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
     BoardConfig.init();
 #endif
-    for (uint8_t i = 0; i< 14; i++) {
+    for (uint8_t i = 0; i< 5; i++) {
         hal.rcout->enable_ch(i);
     }
 }
@@ -35,8 +35,9 @@ static int8_t delta = 1;
 
 void loop (void)
 {
-    for (uint8_t i=0; i < 14; i++) {
+    for (uint8_t i=0; i < 5; i++) {
         hal.rcout->write(i, pwm);
+        
         pwm += delta;
         if (delta > 0 && pwm >= 2000) {
             delta = -1;
@@ -47,6 +48,7 @@ void loop (void)
         }
     }
     hal.scheduler->delay(5);
+    
 }
 
 AP_HAL_MAIN();
